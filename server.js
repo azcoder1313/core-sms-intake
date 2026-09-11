@@ -294,8 +294,8 @@ app.post('/sms', async (req, res) => {
   try {
     const b = req.body;
     // Handle GHL native format AND custom mapped format
-    const phone   = b.from || b.phone || b.contactPhone || b.caller || '';
-    const message = b.body || b.message || b.text || '';
+    const phone   = b.from || b.Phone || b.phone || b.contactPhone || b.caller || '';
+    const message = b.body || b.message || b.text || 'CORE';
     const hasAtt  = !!(b.attachments?.length || b.mediaUrls?.length);
     if (!phone) { console.log('No phone in payload'); return; }
     await handle(phone, message, hasAtt);
@@ -309,7 +309,7 @@ app.post('/missed-call', async (req, res) => {
   console.log('Missed call:', JSON.stringify(req.body).slice(0, 300));
   try {
     const b = req.body;
-    const phone = b.from || b.phone || b.contactPhone || b.caller || '';
+    const phone = b.from || b.Phone || b.phone || b.contactPhone || b.caller || '';
     if (!phone) { console.log('No phone in missed call payload'); return; }
     await sendSMS(phone, M.missed);
     const contact = await findOrCreateContact(phone);
