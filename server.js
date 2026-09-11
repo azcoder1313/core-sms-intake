@@ -287,26 +287,30 @@ async function handle(phone, rawMsg, hasAttachment = false) {
 // ── WEBHOOK ENDPOINTS ─────────────────────────────────────
 
 // GHL inbound SMS webhook
+// GHL native InboundMessage format: { type, from, body, contactId, locationId, messageType, attachments }
 app.post('/sms', async (req, res) => {
   res.sendStatus(200);
-  console.log('SMS webhook:', JSON.stringify(req.body).slice(0, 200));
+  console.log('SMS webhook:', JSON.stringify(req.body).slice(0, 300));
   try {
-    const body = req.body;
-    // GHL sends different payloads — handle both formats
-    const phone   = body.phone || body.contactPhone || body.from || body.caller;
-    const message = body.message || body.body || body.text || '';
-    const hasAtt  = !!(body.attachments?.length || body.mediaUrls?.length);
-    if (phone) await handle(phone, message, hasAtt);
+    const b = req.body;
+    // Handle GHL native format AND custom mapped format
+    const phone   = b.from || b.phone || b.contactPhone || b.caller || '';
+    const message = b.body || b.message || b.text || '';
+    const hasAtt  = !!(b.attachments?.length || b.mediaUrls?.length);
+    if (!phone) { console.log('No phone in payload'); return; }
+    await handle(phone, message, hasAtt);
   } catch (e) { console.error('SMS handler error:', e); }
 });
 
 // GHL missed call webhook
+// GHL native format: { type: 'MissedCall', from, contactId, locationId }
 app.post('/missed-call', async (req, res) => {
   res.sendStatus(200);
-  console.log('Missed call:', JSON.stringify(req.body).slice(0, 200));
+  console.log('Missed call:', JSON.stringify(req.body).slice(0, 300));
   try {
-    const phone = req.body.phone || req.body.contactPhone || req.body.from || req.body.caller;
-    if (!phone) return;
+    const b = req.body;
+    const phone = b.from || b.phone || b.contactPhone || b.caller || '';
+    if (!phone) { console.log('No phone in missed call payload'); return; }
     await sendSMS(phone, M.missed);
     const contact = await findOrCreateContact(phone);
     if (contact?.id) {
