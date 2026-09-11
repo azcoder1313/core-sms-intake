@@ -1,13 +1,14 @@
 'use strict';
 const express = require('express');
+const { getAccessToken, exchangeCode, getAuthUrl, loadTokens } = require('./oauth');
+
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ── CONFIG ────────────────────────────────────────────────
-const GHL_TOKEN   = process.env.GHL_TOKEN   || 'pit-1e214c52-2442-47b6-a184-2ba78f12bdd4';
-const LOCATION_ID = process.env.LOCATION_ID || 'NcJddt6h22VLqrHhSygt';
-const PIPELINE_ID = process.env.PIPELINE_ID || 'SKQWcAOZruZpjfHBKzvJ';
+const LOCATION_ID = proces…ATION_ID || 'NcJddt6h22VLqrHhSygt';
+const PIPELINE_ID = proces…LINE_ID  || 'SKQWcAOZruZpjfHBKzvJ';
 const STAGE_NEW   = process.env.STAGE_NEW   || 'd6183c88-f08c-4df4-b849-fc8a158f6818';
 const AARON_PHONE = process.env.AARON_PHONE || '+14159090825';
 const TIM_PHONE   = process.env.TIM_PHONE   || '+15102092955';
@@ -25,22 +26,23 @@ const FIELD_IDS = {
   intakeSource:  '5Pb91i8u6aZ1q0ZuVLlE',
 };
 
-const GHL_H = {
-  'Authorization': `Bearer ${GHL_TOKEN}`,
-  'Content-Type': 'application/json',
-  'Version': '2021-07-28',
-};
-
-// ── IN-MEMORY STATE (resets on restart — fine for low volume) ──
+// ── IN-MEMORY STATE ───────────────────────────────────────
 const STATE = {};
-
-function getState(phone) { return STATE[phone] || {}; }
-function setState(phone, data) { STATE[phone] = { ...STATE[phone], ...data, ts: Date.now() }; }
-function clearState(phone) { delete STATE[phone]; }
+function getState(phone)        { return STATE[phone] || {}; }
+function setState(phone, data)  { STATE[phone] = { ...STATE[phone], ...data, ts: Date.now() }; }
+function clearState(phone)      { delete STATE[phone]; }
 
 // ── GHL API ───────────────────────────────────────────────
 async function ghl(path, method = 'GET', body = null) {
-  const opts = { method, headers: GHL_H };
+  const token = await getAccessToken();
+  const opts = {
+    method,
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'Version': '2021-07-28',
+    },
+  };
   if (body) opts.body = JSON.stringify(body);
   const r = await fetch(`https://services.leadconnectorhq.com${path}`, opts);
   if (r.status === 204) return {};
@@ -48,13 +50,9 @@ async function ghl(path, method = 'GET', body = null) {
 }
 
 async function findOrCreateContact(phone, extras = {}) {
-  // Search by phone
   const s = await ghl(`/contacts/search/duplicate?locationId=${LOCATION_ID}&number=${encodeURIComponent(phone)}`);
   if (s.contact?.id) return s.contact;
-  // Create
-  const c = await ghl('/contacts', 'POST', {
-    locationId: LOCATION_ID, phone, ...extras,
-  });
+  const c = await ghl('/contacts', 'POST', { locationId: LOCATION_ID, phone, ...extras });
   return c.contact || {};
 }
 
@@ -62,13 +60,11 @@ async function updateContact(contactId, fields, tags = []) {
   const customFields = Object.entries(fields)
     .filter(([k]) => FIELD_IDS[k])
     .map(([k, v]) => ({ id: FIELD_IDS[k], field_value: String(v) }));
-
   return ghl(`/contacts/${contactId}`, 'PUT', {
     tags, customFields,
     ...(fields.firstName ? { firstName: fields.firstName } : {}),
     ...(fields.lastName  ? { lastName:  fields.lastName  } : {}),
     ...(fields.email     ? { email:     fields.email     } : {}),
-    ...(fields.name      ? { name:      fields.name      } : {}),
   });
 }
 
@@ -76,14 +72,14 @@ async function addToPipeline(contactId, stageId = STAGE_NEW) {
   return ghl('/opportunities', 'POST', {
     pipelineId: PIPELINE_ID,
     locationId: LOCATION_ID,
-    name: `SMS Lead`,
+    name: 'SMS Lead',
     pipelineStageId: stageId,
     contactId,
     status: 'open',
   });
 }
 
-async function getOrCreateConvo(contactId, phone) {
+async function getOrCreateConvo(contactId) {
   const s = await ghl(`/conversations/search?locationId=${LOCATION_ID}&contactId=${contactId}`);
   if (s.conversations?.[0]?.id) return s.conversations[0].id;
   const n = await ghl('/conversations', 'POST', { locationId: LOCATION_ID, contactId });
@@ -94,7 +90,7 @@ async function sendSMS(toPhone, message, fromPhone = PRIMARY_NUM) {
   try {
     const contact = await findOrCreateContact(toPhone);
     if (!contact?.id) { console.error('No contact for', toPhone); return; }
-    const convoId = await getOrCreateConvo(contact.id, toPhone);
+    const convoId = await getOrCreateConvo(contact.id);
     if (!convoId) { console.error('No convo for', toPhone); return; }
     return ghl('/conversations/messages', 'POST', {
       type: 'SMS',
@@ -147,10 +143,10 @@ Questions? Call (559) 844-7093.
 
 — Ag Equity`,
 
-  b_name: `Sure! First — what is your full name?`,
+  b_name:   `Sure! First — what is your full name?`,
   b_upload: (n) => `Thanks ${n}! Please send your utility bill photos one at a time. Reply DONE when finished.`,
-  b_got: `Got it! Send the next one or reply DONE when finished.`,
-  b_done: (n, count) =>
+  b_got:    `Got it! Send the next one or reply DONE when finished.`,
+  b_done:   (n, count) =>
 `Got it ${n}! We received ${count} bill photo${count !== 1 ? 's' : ''}. Our team will have your custom energy analysis ready within 48 hours.
 
 — Ag Equity`,
@@ -160,7 +156,7 @@ Questions? Call (559) 844-7093.
 
 ${GREENBUTTON}
 
-This lets us pull your exact usage directly from PG&E. Takes about 2 minutes. Reply DONE when finished, or send bill photos instead.`,
+Takes about 2 minutes. Reply DONE when finished, or send bill photos instead.`,
 
   c_done: (n) =>
 `Thank you ${n || 'there'}! Our team will pull your utility data and have your custom analysis ready within 48 hours.
@@ -175,19 +171,20 @@ Text CORE to this number or call back at (559) 844-7093 — we will pick up.
 — Ag Equity`,
 };
 
-// ── MAIN HANDLER ──────────────────────────────────────────
-async function handle(phone, rawMsg, hasAttachment = false) {
-  const msg  = (rawMsg || '').trim().toUpperCase();
-  const s    = getState(phone);
+// ── CONVERSATION HANDLER ──────────────────────────────────
+async function handle(phone, rawMsg) {
+  const msg   = (rawMsg || '').trim().toUpperCase();
+  const s     = getState(phone);
   const first = (name) => (name || '').split(' ')[0] || 'there';
 
-  // ── Trigger ──
+  // ── New lead trigger ──
   if (!s.step) {
-    if (msg.includes('CORE') || msg.includes('SOLAR') || msg.includes('PUMP') || msg.includes('ENERGY') || msg.includes('BILL')) {
+    if (msg.includes('CORE') || msg.includes('SOLAR') || msg.includes('PUMP') ||
+        msg.includes('ENERGY') || msg.includes('BILL') || msg === 'CORE') {
       const contact = await findOrCreateContact(phone);
       if (contact?.id) {
         await addToPipeline(contact.id);
-        await updateContact(contact.id, { intakeSource: 'SMS', intakeMethod: 'Inbound' }, ['sms-intake']);
+        await updateContact(contact.id, { intakeSource: 'SMS' }, ['sms-intake']);
       }
       setState(phone, { step: 'opening', contactId: contact?.id });
       await sendSMS(phone, M.opening);
@@ -200,8 +197,7 @@ async function handle(phone, rawMsg, hasAttachment = false) {
     if (msg === 'A') { setState(phone, { step: 'a_q1', branch: 'questions' }); await sendSMS(phone, M.a_q1); return; }
     if (msg === 'B') { setState(phone, { step: 'b_name', branch: 'bills', billCount: 0 }); await sendSMS(phone, M.b_name); return; }
     if (msg === 'C') { setState(phone, { step: 'c_wait', branch: 'greenbutton' }); await sendSMS(phone, M.c_link); return; }
-    // Re-show menu if unrecognized
-    await sendSMS(phone, `Please reply A, B, or C.\n\n${M.opening}`);
+    await sendSMS(phone, `Please reply A, B, or C to continue.`);
     return;
   }
 
@@ -216,19 +212,13 @@ async function handle(phone, rawMsg, hasAttachment = false) {
       case 'a_q6': {
         setState(phone, { step: 'done', watering: rawMsg.trim() });
         const st = getState(phone);
-        const fn = first(st.name);
-        await sendSMS(phone, M.a_done(fn));
-        // Update GHL
+        await sendSMS(phone, M.a_done(first(st.name)));
         if (st.contactId) {
-          const nameParts = (st.name || '').split(' ');
+          const parts = (st.name || '').split(' ');
           await updateContact(st.contactId, {
-            firstName: nameParts[0],
-            lastName: nameParts.slice(1).join(' '),
-            crop: st.crop,
-            utility: st.utility,
-            bill: st.bill,
-            watering: st.watering,
-            intakeMethod: 'Questions',
+            firstName: parts[0], lastName: parts.slice(1).join(' '),
+            crop: st.crop, utility: st.utility, bill: st.bill,
+            watering: st.watering, intakeMethod: 'Questions',
           }, ['postcard-lead', 'sms-intake', 'questions-complete']);
         }
         await notifyTeam({ name: st.name, phone, crop: st.crop, county: st.county, bill: st.bill, utility: st.utility, method: 'Branch A — Questions' });
@@ -251,17 +241,15 @@ async function handle(phone, rawMsg, hasAttachment = false) {
         const st = getState(phone);
         await sendSMS(phone, M.b_done(first(st.name), st.billCount || 0));
         if (st.contactId) {
-          const nameParts = (st.name || '').split(' ');
+          const parts = (st.name || '').split(' ');
           await updateContact(st.contactId, {
-            firstName: nameParts[0],
-            lastName: nameParts.slice(1).join(' '),
+            firstName: parts[0], lastName: parts.slice(1).join(' '),
             intakeMethod: 'Bills',
           }, ['postcard-lead', 'sms-intake', 'bill-upload']);
         }
         await notifyTeam({ name: st.name, phone, method: `Branch B — Bill Photos (${st.billCount || 0} received)` });
         clearState(phone);
       } else {
-        // Photo received (or any other message = another photo)
         setState(phone, { billCount: (s.billCount || 0) + 1 });
         await sendSMS(phone, M.b_got);
       }
@@ -270,60 +258,101 @@ async function handle(phone, rawMsg, hasAttachment = false) {
   }
 
   // ── Branch C: Green Button ──
-  if (s.branch === 'greenbutton') {
-    if (msg === 'DONE') {
-      const st = getState(phone);
-      await sendSMS(phone, M.c_done(first(st.name)));
-      if (st.contactId) {
-        await updateContact(st.contactId, { intakeMethod: 'GreenButton' }, ['postcard-lead', 'sms-intake', 'greenbutton-sent']);
-      }
-      await notifyTeam({ name: st.name || 'Unknown', phone, method: 'Branch C — Green Button Auth' });
-      clearState(phone);
+  if (s.branch === 'greenbutton' && msg === 'DONE') {
+    const st = getState(phone);
+    await sendSMS(phone, M.c_done(first(st.name)));
+    if (st.contactId) {
+      await updateContact(st.contactId, { intakeMethod: 'GreenButton' }, ['postcard-lead', 'sms-intake', 'greenbutton-sent']);
     }
-    return;
+    await notifyTeam({ name: st.name || 'Unknown', phone, method: 'Branch C — Green Button Auth' });
+    clearState(phone);
   }
 }
 
 // ── WEBHOOK ENDPOINTS ─────────────────────────────────────
-
-// GHL inbound SMS webhook
-// GHL native InboundMessage format: { type, from, body, contactId, locationId, messageType, attachments }
 app.post('/sms', async (req, res) => {
   res.sendStatus(200);
-  console.log('SMS webhook:', JSON.stringify(req.body).slice(0, 300));
   try {
     const b = req.body;
-    // Handle GHL native format AND custom mapped format
     const phone   = b.from || b.Phone || b.phone || b.contactPhone || b.caller || '';
     const message = b.body || b.message || b.text || 'CORE';
-    const hasAtt  = !!(b.attachments?.length || b.mediaUrls?.length);
-    if (!phone) { console.log('No phone in payload'); return; }
-    await handle(phone, message, hasAtt);
-  } catch (e) { console.error('SMS handler error:', e); }
+    if (!phone) { console.log('No phone in payload:', JSON.stringify(b).slice(0,200)); return; }
+    console.log('SMS from', phone, ':', message.slice(0,50));
+    await handle(phone, message);
+  } catch (e) { console.error('SMS error:', e.message); }
 });
 
-// GHL missed call webhook
-// GHL native format: { type: 'MissedCall', from, contactId, locationId }
 app.post('/missed-call', async (req, res) => {
   res.sendStatus(200);
-  console.log('Missed call:', JSON.stringify(req.body).slice(0, 300));
   try {
     const b = req.body;
     const phone = b.from || b.Phone || b.phone || b.contactPhone || b.caller || '';
-    if (!phone) { console.log('No phone in missed call payload'); return; }
+    if (!phone) return;
+    console.log('Missed call from', phone);
     await sendSMS(phone, M.missed);
     const contact = await findOrCreateContact(phone);
     if (contact?.id) {
       await addToPipeline(contact.id);
       await updateContact(contact.id, { intakeSource: 'Call' }, ['call-lead', 'missed-call']);
     }
-    console.log('Missed call auto-text sent to', phone);
-  } catch (e) { console.error('Missed call error:', e); }
+  } catch (e) { console.error('Missed call error:', e.message); }
 });
 
-// Health check
-app.get('/',       (req, res) => res.json({ status: 'ok', service: 'CORE SMS Intake', version: '1.0.0' }));
+// ── OAUTH ENDPOINTS ───────────────────────────────────────
+
+// Step 1: Visit this to start OAuth — redirects to GHL
+app.get('/oauth/authorize', (req, res) => {
+  const url = getAuthUrl('agequity-setup');
+  console.log('OAuth authorize redirect to GHL');
+  res.redirect(url);
+});
+
+// Step 2: GHL redirects here with ?code=xxx after user approves
+app.get('/oauth/callback', async (req, res) => {
+  const { code, state, error } = req.query;
+  if (error) {
+    console.error('OAuth error:', error);
+    return res.send(`<h2>OAuth Error: ${error}</h2>`);
+  }
+  if (!code) {
+    return res.send('<h2>No code received</h2>');
+  }
+  try {
+    const tokens = await exchangeCode(code);
+    console.log('OAuth complete — location:', tokens.locationId);
+    res.send(`
+      <html><body style="font-family:sans-serif;padding:40px;background:#0C2340;color:white;">
+        <h2 style="color:#F5A623;">✅ Ag Equity — GHL Connected!</h2>
+        <p>OAuth authorization complete. Tokens saved.</p>
+        <p>Location ID: <strong>${tokens.locationId || LOCATION_ID}</strong></p>
+        <p>Access token expires in: <strong>${tokens.expires_in} seconds</strong></p>
+        <p style="color:#68d391;">The server will auto-refresh tokens before they expire. No further action needed.</p>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error('Token exchange error:', e.message);
+    res.send(`<h2>Error: ${e.message}</h2>`);
+  }
+});
+
+// Status page
+app.get('/oauth/status', (req, res) => {
+  const tokens = loadTokens();
+  if (!tokens) return res.json({ status: 'not_authorized', action: 'Visit /oauth/authorize to connect GHL' });
+  const savedAt   = tokens.savedAt || 0;
+  const expiresIn = tokens.expires_in || 86400;
+  const expiresAt = new Date(savedAt + expiresIn * 1000);
+  res.json({
+    status: 'authorized',
+    locationId: tokens.locationId,
+    expiresAt: expiresAt.toISOString(),
+    hasRefreshToken: !!tokens.refresh_token,
+  });
+});
+
+// Health
+app.get('/',       (req, res) => res.json({ status: 'ok', service: 'CORE SMS Intake', version: '2.0.0' }));
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`CORE SMS Intake running on port ${PORT}`));
+app.listen(PORT, () => console.log(`CORE SMS Intake v2 (OAuth) running on port ${PORT}`));
