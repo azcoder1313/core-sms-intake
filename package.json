@@ -1,0 +1,15 @@
+{
+  "name": "core-sms-intake",
+  "version": "1.0.0",
+  "description": "CORE Product SMS intake handler for Ag Equity farmer leads",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
