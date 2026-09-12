@@ -73,7 +73,7 @@ async function updateContact(contactId, fields, tags = []) {
 }
 
 async function addToPipeline(contactId, stageId = STAGE_NEW) {
-  return ghl('/opportunities', 'POST', {
+  const result = await ghl('/opportunities/', 'POST', {
     pipelineId: PIPELINE_ID,
     locationId: LOCATION_ID,
     name: 'SMS Lead',
@@ -81,6 +81,8 @@ async function addToPipeline(contactId, stageId = STAGE_NEW) {
     contactId,
     status: 'open',
   });
+  console.log('addToPipeline result:', JSON.stringify(result).slice(0,200));
+  return result;
 }
 
 async function getOrCreateConvo(contactId) {
@@ -90,18 +92,23 @@ async function getOrCreateConvo(contactId) {
   return n.conversation?.id;
 }
 
-async function sendSMS(toPhone, message, fromPhone = PRIMARY_NUM) {
+async function sendSMS(toPhone, message, fromPhone = PRIMARY_NUM, knownContactId = null) {
   try {
     console.log(`sendSMS → ${toPhone} (${message.slice(0,40)})`);
-    const contact = await findOrCreateContact(toPhone);
-    if (!contact?.id) { console.error('No contact for', toPhone); return; }
-    console.log('contact id:', contact.id);
-    const convoId = await getOrCreateConvo(contact.id);
+    let contactId = knownContactId;
+    if (!contactId) {
+      const contact = await findOrCreateContact(toPhone);
+      if (!contact?.id) { console.error('No contact for', toPhone); return; }
+      contactId = contact.id;
+    }
+    console.log('contact id:', contactId);
+    const convoId = await getOrCreateConvo(contactId);
     if (!convoId) { console.error('No convo for', toPhone); return; }
     console.log('convo id:', convoId);
     const result = await ghl('/conversations/messages', 'POST', {
       type: 'SMS',
       conversationId: convoId,
+      contactId,
       message,
       fromNumber: fromPhone,
       toNumber: toPhone,
@@ -191,37 +198,39 @@ async function handle(phone, rawMsg) {
     if (msg.includes('CORE') || msg.includes('SOLAR') || msg.includes('PUMP') ||
         msg.includes('ENERGY') || msg.includes('BILL') || msg === 'CORE') {
       const contact = await findOrCreateContact(phone);
-      if (contact?.id) {
-        await addToPipeline(contact.id);
-        await updateContact(contact.id, { intakeSource: 'SMS' }, ['sms-intake']);
+      const cid = contact?.id;
+      if (cid) {
+        await addToPipeline(cid);
+        await updateContact(cid, { intakeSource: 'SMS' }, ['sms-intake']);
       }
-      setState(phone, { step: 'opening', contactId: contact?.id });
-      await sendSMS(phone, M.opening);
+      setState(phone, { step: 'opening', contactId: cid });
+      await sendSMS(phone, M.opening, PRIMARY_NUM, cid);
     }
     return;
   }
 
   // ── Branch selection ──
+  const cid = s.contactId;
   if (s.step === 'opening') {
-    if (msg === 'A') { setState(phone, { step: 'a_q1', branch: 'questions' }); await sendSMS(phone, M.a_q1); return; }
-    if (msg === 'B') { setState(phone, { step: 'b_name', branch: 'bills', billCount: 0 }); await sendSMS(phone, M.b_name); return; }
-    if (msg === 'C') { setState(phone, { step: 'c_wait', branch: 'greenbutton' }); await sendSMS(phone, M.c_link); return; }
-    await sendSMS(phone, `Please reply A, B, or C to continue.`);
+    if (msg === 'A') { setState(phone, { step: 'a_q1', branch: 'questions' }); await sendSMS(phone, M.a_q1, PRIMARY_NUM, cid); return; }
+    if (msg === 'B') { setState(phone, { step: 'b_name', branch: 'bills', billCount: 0 }); await sendSMS(phone, M.b_name, PRIMARY_NUM, cid); return; }
+    if (msg === 'C') { setState(phone, { step: 'c_wait', branch: 'greenbutton' }); await sendSMS(phone, M.c_link, PRIMARY_NUM, cid); return; }
+    await sendSMS(phone, `Please reply A, B, or C to continue.`, PRIMARY_NUM, cid);
     return;
   }
 
   // ── Branch A: Questions ──
   if (s.branch === 'questions') {
     switch (s.step) {
-      case 'a_q1': setState(phone, { step: 'a_q2', name: rawMsg.trim() }); await sendSMS(phone, M.a_q2(first(rawMsg))); break;
-      case 'a_q2': setState(phone, { step: 'a_q3', county: rawMsg.trim() }); await sendSMS(phone, M.a_q3); break;
-      case 'a_q3': setState(phone, { step: 'a_q4', crop: rawMsg.trim() }); await sendSMS(phone, M.a_q4); break;
-      case 'a_q4': setState(phone, { step: 'a_q5', utility: rawMsg.trim() }); await sendSMS(phone, M.a_q5); break;
-      case 'a_q5': setState(phone, { step: 'a_q6', bill: rawMsg.trim() }); await sendSMS(phone, M.a_q6); break;
+      case 'a_q1': setState(phone, { step: 'a_q2', name: rawMsg.trim() }); await sendSMS(phone, M.a_q2(first(rawMsg)), PRIMARY_NUM, cid); break;
+      case 'a_q2': setState(phone, { step: 'a_q3', county: rawMsg.trim() }); await sendSMS(phone, M.a_q3, PRIMARY_NUM, cid); break;
+      case 'a_q3': setState(phone, { step: 'a_q4', crop: rawMsg.trim() }); await sendSMS(phone, M.a_q4, PRIMARY_NUM, cid); break;
+      case 'a_q4': setState(phone, { step: 'a_q5', utility: rawMsg.trim() }); await sendSMS(phone, M.a_q5, PRIMARY_NUM, cid); break;
+      case 'a_q5': setState(phone, { step: 'a_q6', bill: rawMsg.trim() }); await sendSMS(phone, M.a_q6, PRIMARY_NUM, cid); break;
       case 'a_q6': {
         setState(phone, { step: 'done', watering: rawMsg.trim() });
         const st = getState(phone);
-        await sendSMS(phone, M.a_done(first(st.name)));
+        await sendSMS(phone, M.a_done(first(st.name)), PRIMARY_NUM, cid);
         if (st.contactId) {
           const parts = (st.name || '').split(' ');
           await updateContact(st.contactId, {
@@ -242,13 +251,13 @@ async function handle(phone, rawMsg) {
   if (s.branch === 'bills') {
     if (s.step === 'b_name') {
       setState(phone, { step: 'b_upload', name: rawMsg.trim(), billCount: 0 });
-      await sendSMS(phone, M.b_upload(first(rawMsg)));
+      await sendSMS(phone, M.b_upload(first(rawMsg)), PRIMARY_NUM, cid);
       return;
     }
     if (s.step === 'b_upload') {
       if (msg === 'DONE') {
         const st = getState(phone);
-        await sendSMS(phone, M.b_done(first(st.name), st.billCount || 0));
+        await sendSMS(phone, M.b_done(first(st.name), st.billCount || 0), PRIMARY_NUM, cid);
         if (st.contactId) {
           const parts = (st.name || '').split(' ');
           await updateContact(st.contactId, {
@@ -260,7 +269,7 @@ async function handle(phone, rawMsg) {
         clearState(phone);
       } else {
         setState(phone, { billCount: (s.billCount || 0) + 1 });
-        await sendSMS(phone, M.b_got);
+        await sendSMS(phone, M.b_got, PRIMARY_NUM, cid);
       }
       return;
     }
@@ -269,7 +278,7 @@ async function handle(phone, rawMsg) {
   // ── Branch C: Green Button ──
   if (s.branch === 'greenbutton' && msg === 'DONE') {
     const st = getState(phone);
-    await sendSMS(phone, M.c_done(first(st.name)));
+    await sendSMS(phone, M.c_done(first(st.name)), PRIMARY_NUM, cid);
     if (st.contactId) {
       await updateContact(st.contactId, { intakeMethod: 'GreenButton' }, ['postcard-lead', 'sms-intake', 'greenbutton-sent']);
     }
