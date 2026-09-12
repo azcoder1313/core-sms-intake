@@ -399,4 +399,10 @@ app.get('/',       (req, res) => res.json({ status: 'ok', service: 'CORE SMS Int
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`CORE SMS Intake v2 (OAuth) running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`CORE SMS Intake v2 (OAuth) running on port ${PORT}`);
+  // Self-ping every 4 min to prevent Railway sleep
+  setInterval(() => {
+    fetch(`http://localhost:${PORT}/health`).catch(() => {});
+  }, 4 * 60 * 1000);
+});
