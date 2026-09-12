@@ -197,7 +197,7 @@ Text CORE to this number or call back at (559) 844-7093 — we will pick up.
 };
 
 // ── CONVERSATION HANDLER ──────────────────────────────────
-async function handle(phone, rawMsg) {
+async function handle(phone, rawMsg, replyFrom = PRIMARY_NUM) {
   const msg   = (rawMsg || '').trim().toUpperCase();
   const s     = getState(phone);
   const first = (name) => (name || '').split(' ')[0] || 'there';
@@ -212,34 +212,35 @@ async function handle(phone, rawMsg) {
         await addToPipeline(cid);
         await updateContact(cid, { intakeSource: 'SMS' }, ['sms-intake']);
       }
-      setState(phone, { step: 'opening', contactId: cid });
-      await sendSMS(phone, M.opening, PRIMARY_NUM, cid);
+      setState(phone, { step: 'opening', contactId: cid, replyFrom });
+      await sendSMS(phone, M.opening, replyFrom, cid);
     }
     return;
   }
 
   // ── Branch selection ──
   const cid = s.contactId;
+  const rf  = s.replyFrom || replyFrom;
   if (s.step === 'opening') {
-    if (msg === 'A') { setState(phone, { step: 'a_q1', branch: 'questions' }); await sendSMS(phone, M.a_q1, PRIMARY_NUM, cid); return; }
-    if (msg === 'B') { setState(phone, { step: 'b_name', branch: 'bills', billCount: 0 }); await sendSMS(phone, M.b_name, PRIMARY_NUM, cid); return; }
-    if (msg === 'C') { setState(phone, { step: 'c_wait', branch: 'greenbutton' }); await sendSMS(phone, M.c_link, PRIMARY_NUM, cid); return; }
-    await sendSMS(phone, `Please reply A, B, or C to continue.`, PRIMARY_NUM, cid);
+    if (msg === 'A') { setState(phone, { step: 'a_q1', branch: 'questions' }); await sendSMS(phone, M.a_q1, rf, cid); return; }
+    if (msg === 'B') { setState(phone, { step: 'b_name', branch: 'bills', billCount: 0 }); await sendSMS(phone, M.b_name, rf, cid); return; }
+    if (msg === 'C') { setState(phone, { step: 'c_wait', branch: 'greenbutton' }); await sendSMS(phone, M.c_link, rf, cid); return; }
+    await sendSMS(phone, `Please reply A, B, or C to continue.`, rf, cid);
     return;
   }
 
   // ── Branch A: Questions ──
   if (s.branch === 'questions') {
     switch (s.step) {
-      case 'a_q1': setState(phone, { step: 'a_q2', name: rawMsg.trim() }); await sendSMS(phone, M.a_q2(first(rawMsg)), PRIMARY_NUM, cid); break;
-      case 'a_q2': setState(phone, { step: 'a_q3', county: rawMsg.trim() }); await sendSMS(phone, M.a_q3, PRIMARY_NUM, cid); break;
-      case 'a_q3': setState(phone, { step: 'a_q4', crop: rawMsg.trim() }); await sendSMS(phone, M.a_q4, PRIMARY_NUM, cid); break;
-      case 'a_q4': setState(phone, { step: 'a_q5', utility: rawMsg.trim() }); await sendSMS(phone, M.a_q5, PRIMARY_NUM, cid); break;
-      case 'a_q5': setState(phone, { step: 'a_q6', bill: rawMsg.trim() }); await sendSMS(phone, M.a_q6, PRIMARY_NUM, cid); break;
+      case 'a_q1': setState(phone, { step: 'a_q2', name: rawMsg.trim() }); await sendSMS(phone, M.a_q2(first(rawMsg)), rf, cid); break;
+      case 'a_q2': setState(phone, { step: 'a_q3', county: rawMsg.trim() }); await sendSMS(phone, M.a_q3, rf, cid); break;
+      case 'a_q3': setState(phone, { step: 'a_q4', crop: rawMsg.trim() }); await sendSMS(phone, M.a_q4, rf, cid); break;
+      case 'a_q4': setState(phone, { step: 'a_q5', utility: rawMsg.trim() }); await sendSMS(phone, M.a_q5, rf, cid); break;
+      case 'a_q5': setState(phone, { step: 'a_q6', bill: rawMsg.trim() }); await sendSMS(phone, M.a_q6, rf, cid); break;
       case 'a_q6': {
         setState(phone, { step: 'done', watering: rawMsg.trim() });
         const st = getState(phone);
-        await sendSMS(phone, M.a_done(first(st.name)), PRIMARY_NUM, cid);
+        await sendSMS(phone, M.a_done(first(st.name)), rf, cid);
         if (st.contactId) {
           const parts = (st.name || '').split(' ');
           await updateContact(st.contactId, {
@@ -260,13 +261,13 @@ async function handle(phone, rawMsg) {
   if (s.branch === 'bills') {
     if (s.step === 'b_name') {
       setState(phone, { step: 'b_upload', name: rawMsg.trim(), billCount: 0 });
-      await sendSMS(phone, M.b_upload(first(rawMsg)), PRIMARY_NUM, cid);
+      await sendSMS(phone, M.b_upload(first(rawMsg)), rf, cid);
       return;
     }
     if (s.step === 'b_upload') {
       if (msg === 'DONE') {
         const st = getState(phone);
-        await sendSMS(phone, M.b_done(first(st.name), st.billCount || 0), PRIMARY_NUM, cid);
+        await sendSMS(phone, M.b_done(first(st.name), st.billCount || 0), rf, cid);
         if (st.contactId) {
           const parts = (st.name || '').split(' ');
           await updateContact(st.contactId, {
@@ -278,7 +279,7 @@ async function handle(phone, rawMsg) {
         clearState(phone);
       } else {
         setState(phone, { billCount: (s.billCount || 0) + 1 });
-        await sendSMS(phone, M.b_got, PRIMARY_NUM, cid);
+        await sendSMS(phone, M.b_got, rf, cid);
       }
       return;
     }
@@ -287,7 +288,7 @@ async function handle(phone, rawMsg) {
   // ── Branch C: Green Button ──
   if (s.branch === 'greenbutton' && msg === 'DONE') {
     const st = getState(phone);
-    await sendSMS(phone, M.c_done(first(st.name)), PRIMARY_NUM, cid);
+    await sendSMS(phone, M.c_done(first(st.name)), rf, cid);
     if (st.contactId) {
       await updateContact(st.contactId, { intakeMethod: 'GreenButton' }, ['postcard-lead', 'sms-intake', 'greenbutton-sent']);
     }
@@ -303,10 +304,13 @@ app.post('/sms', async (req, res) => {
     const b = req.body;
     const rawPhone = b.from || b.Phone || b.phone || b.contactPhone || b.caller || '';
     const phone   = toE164(rawPhone);
+    // Use whichever GHL number they texted — fall back to PRIMARY_NUM
+    const rawTo   = b.to || b.To || b.toNumber || b.locationPhone || '';
+    const replyFrom = rawTo ? toE164(rawTo) : PRIMARY_NUM;
     const message = b.body || b.message || b.text || 'CORE';
     if (!phone || phone === '+') { console.log('No phone in payload:', JSON.stringify(b).slice(0,200)); return; }
-    console.log('SMS from', phone, ':', message.slice(0,50));
-    await handle(phone, message);
+    console.log('SMS from', phone, 'to', replyFrom, ':', message.slice(0,50));
+    await handle(phone, message, replyFrom);
   } catch (e) { console.error('SMS error:', e.message); }
 });
 
