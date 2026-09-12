@@ -379,6 +379,21 @@ app.get('/oauth/status', (req, res) => {
   });
 });
 
+// Reset state for a phone (testing)
+app.get('/reset/:phone', (req, res) => {
+  const phone = toE164(decodeURIComponent(req.params.phone));
+  const had = !!STATE[phone];
+  clearState(phone);
+  console.log('Reset state for', phone);
+  res.json({ cleared: had, phone });
+});
+
+// Show current state (testing)
+app.get('/state/:phone', (req, res) => {
+  const phone = toE164(decodeURIComponent(req.params.phone));
+  res.json(STATE[phone] || { status: 'no state' });
+});
+
 // Health
 app.get('/',       (req, res) => res.json({ status: 'ok', service: 'CORE SMS Intake', version: '2.0.0' }));
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
