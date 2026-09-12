@@ -44,9 +44,13 @@ async function ghl(path, method = 'GET', body = null) {
     },
   };
   if (body) opts.body = JSON.stringify(body);
-  const r = await fetch(`https://services.leadconnectorhq.com${path}`, opts);
+  const url = `https://services.leadconnectorhq.com${path}`;
+  console.log(`GHL ${method} ${path.split('?')[0]}`);
+  const r = await fetch(url, opts);
+  console.log(`GHL ${method} ${path.split('?')[0]} → ${r.status}`);
   if (r.status === 204) return {};
-  return r.json().catch(() => ({}));
+  const text = await r.text();
+  try { return JSON.parse(text); } catch { console.error('GHL non-JSON:', text.slice(0,200)); return {}; }
 }
 
 async function findOrCreateContact(phone, extras = {}) {
@@ -88,18 +92,23 @@ async function getOrCreateConvo(contactId) {
 
 async function sendSMS(toPhone, message, fromPhone = PRIMARY_NUM) {
   try {
+    console.log(`sendSMS → ${toPhone} (${message.slice(0,40)})`);
     const contact = await findOrCreateContact(toPhone);
     if (!contact?.id) { console.error('No contact for', toPhone); return; }
+    console.log('contact id:', contact.id);
     const convoId = await getOrCreateConvo(contact.id);
     if (!convoId) { console.error('No convo for', toPhone); return; }
-    return ghl('/conversations/messages', 'POST', {
+    console.log('convo id:', convoId);
+    const result = await ghl('/conversations/messages', 'POST', {
       type: 'SMS',
       conversationId: convoId,
       message,
       fromNumber: fromPhone,
       toNumber: toPhone,
     });
-  } catch (e) { console.error('sendSMS error:', e.message); }
+    console.log('sendSMS result:', JSON.stringify(result).slice(0,200));
+    return result;
+  } catch (e) { console.error('sendSMS error:', e.message, e.stack); }
 }
 
 async function notifyTeam(data) {
