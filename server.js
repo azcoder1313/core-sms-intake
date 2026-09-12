@@ -26,6 +26,15 @@ const FIELD_IDS = {
   intakeSource:  '5Pb91i8u6aZ1q0ZuVLlE',
 };
 
+// ── HELPERS ──────────────────────────────────────────────
+function toE164(phone) {
+  // Strip everything except digits and leading +
+  const digits = phone.replace(/[^\d]/g, '');
+  if (digits.length === 10) return '+1' + digits;        // US 10-digit
+  if (digits.length === 11 && digits[0] === '1') return '+' + digits; // US with country code
+  return '+' + digits; // fallback
+}
+
 // ── IN-MEMORY STATE ───────────────────────────────────────
 const STATE = {};
 function getState(phone)        { return STATE[phone] || {}; }
@@ -292,9 +301,10 @@ app.post('/sms', async (req, res) => {
   res.sendStatus(200);
   try {
     const b = req.body;
-    const phone   = b.from || b.Phone || b.phone || b.contactPhone || b.caller || '';
+    const rawPhone = b.from || b.Phone || b.phone || b.contactPhone || b.caller || '';
+    const phone   = toE164(rawPhone);
     const message = b.body || b.message || b.text || 'CORE';
-    if (!phone) { console.log('No phone in payload:', JSON.stringify(b).slice(0,200)); return; }
+    if (!phone || phone === '+') { console.log('No phone in payload:', JSON.stringify(b).slice(0,200)); return; }
     console.log('SMS from', phone, ':', message.slice(0,50));
     await handle(phone, message);
   } catch (e) { console.error('SMS error:', e.message); }
@@ -304,8 +314,9 @@ app.post('/missed-call', async (req, res) => {
   res.sendStatus(200);
   try {
     const b = req.body;
-    const phone = b.from || b.Phone || b.phone || b.contactPhone || b.caller || '';
-    if (!phone) return;
+    const rawPhone = b.from || b.Phone || b.phone || b.contactPhone || b.caller || '';
+    const phone = toE164(rawPhone);
+    if (!phone || phone === '+') return;
     console.log('Missed call from', phone);
     await sendSMS(phone, M.missed);
     const contact = await findOrCreateContact(phone);
