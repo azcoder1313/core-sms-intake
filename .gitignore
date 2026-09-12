@@ -1,3 +1,4 @@
 node_modules/
+ghl_tokens.json
 sms_state.json
 .env
