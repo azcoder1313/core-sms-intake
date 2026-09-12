@@ -7,8 +7,8 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ── CONFIG ────────────────────────────────────────────────
-const LOCATION_ID = proces…ATION_ID || 'NcJddt6h22VLqrHhSygt';
-const PIPELINE_ID = proces…LINE_ID  || 'SKQWcAOZruZpjfHBKzvJ';
+const LOCATION_ID = process.env.LOCATION_ID || 'NcJddt6h22VLqrHhSygt';
+const PIPELINE_ID = process.env.PIPELINE_ID || 'SKQWcAOZruZpjfHBKzvJ';
 const STAGE_NEW   = process.env.STAGE_NEW   || 'd6183c88-f08c-4df4-b849-fc8a158f6818';
 const AARON_PHONE = process.env.AARON_PHONE || '+14159090825';
 const TIM_PHONE   = process.env.TIM_PHONE   || '+15102092955';
