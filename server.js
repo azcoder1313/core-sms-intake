@@ -9,7 +9,8 @@ app.use(express.urlencoded({ extended: true }));
 // ── CONFIG ────────────────────────────────────────────────
 const LOCATION_ID = process.env.LOCATION_ID || 'NcJddt6h22VLqrHhSygt';
 const PIPELINE_ID = process.env.PIPELINE_ID || 'SKQWcAOZruZpjfHBKzvJ';
-const STAGE_NEW   = process.env.STAGE_NEW   || 'd6183c88-f08c-4df4-b849-fc8a158f6818';
+const STAGE_NEW      = process.env.STAGE_NEW      || 'd6183c88-f08c-4df4-b849-fc8a158f6818';
+const STAGE_HOT_LEAD = process.env.STAGE_HOT_LEAD || 'aa2b01e1-704a-4d99-aa52-9575fd35d06f';
 const AARON_PHONE = process.env.AARON_PHONE || '+14159090825';
 const TIM_PHONE   = process.env.TIM_PHONE   || '+15102092955';
 const PRIMARY_NUM = process.env.PRIMARY_NUM || '+15598447093';
@@ -319,14 +320,20 @@ app.post('/missed-call', async (req, res) => {
   try {
     const b = req.body;
     const rawPhone = b.from || b.Phone || b.phone || b.contactPhone || b.caller || '';
-    const phone = toE164(rawPhone);
+    const rawTo    = b.to || b.To || b.toNumber || b.locationPhone || '';
+    const phone    = toE164(rawPhone);
+    const replyFrom = rawTo ? toE164(rawTo) : PRIMARY_NUM;
     if (!phone || phone === '+') return;
     console.log('Missed call from', phone);
-    await sendSMS(phone, M.missed);
+    // Send auto-text from the number they called
+    await sendSMS(phone, M.missed, replyFrom);
+    // Create/find contact + add to pipeline at Hot Lead (caller is warmer than texter)
     const contact = await findOrCreateContact(phone);
     if (contact?.id) {
-      await addToPipeline(contact.id);
-      await updateContact(contact.id, { intakeSource: 'Call' }, ['call-lead', 'missed-call']);
+      await addToPipeline(contact.id, STAGE_HOT_LEAD);
+      await updateContact(contact.id, { intakeSource: 'Call' }, ['call-lead', 'missed-call', 'sms-intake']);
+      // Notify team
+      await notifyTeam({ name: contact.firstName || 'Unknown', phone, method: 'Missed Call — auto-texted' });
     }
   } catch (e) { console.error('Missed call error:', e.message); }
 });
