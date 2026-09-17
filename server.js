@@ -409,6 +409,25 @@ app.get('/state/:phone', (req, res) => {
 app.get('/',       (req, res) => res.json({ status: 'ok', service: 'CORE SMS Intake', version: '2.0.0' }));
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
+// ── SEO: sitemap + robots served for agequity.com submission ──
+app.get('/sitemap.xml', (req, res) => {
+  res.set('Content-Type', 'application/xml');
+  res.send(`<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://agequity.com/</loc>
+    <lastmod>2026-09-17</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>`);
+});
+
+app.get('/robots.txt', (req, res) => {
+  res.set('Content-Type', 'text/plain');
+  res.send(`User-agent: *\nAllow: /\n\nUser-agent: GPTBot\nAllow: /\n\nUser-agent: Google-Extended\nAllow: /\n\nUser-agent: PerplexityBot\nAllow: /\n\nUser-agent: ClaudeBot\nAllow: /\n\nUser-agent: anthropic-ai\nAllow: /\n\nSitemap: https://agequity.com/sitemap.xml`);
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`CORE SMS Intake v2 (OAuth) running on port ${PORT}`);
