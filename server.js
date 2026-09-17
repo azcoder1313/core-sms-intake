@@ -138,10 +138,14 @@ County: ${data.county || '—'}
 Bill: ${data.bill || '—'}
 Utility: ${data.utility || '—'}
 Method: ${data.method}`;
-  await Promise.all([
-    sendSMS(AARON_PHONE, msg),
-    sendSMS(TIM_PHONE,   msg),
-  ]);
+
+  // Tim is primary — notify immediately
+  await sendSMS(TIM_PHONE, msg);
+
+  // Aaron is backup — notify 2 minutes later
+  setTimeout(() => {
+    sendSMS(AARON_PHONE, `[BACKUP] ${msg}`);
+  }, 2 * 60 * 1000);
 }
 
 // ── MESSAGE COPY ──────────────────────────────────────────
