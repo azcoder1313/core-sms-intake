@@ -12,7 +12,7 @@ const PIPELINE_ID = process.env.PIPELINE_ID || 'SKQWcAOZruZpjfHBKzvJ';
 const STAGE_NEW      = process.env.STAGE_NEW      || 'd6183c88-f08c-4df4-b849-fc8a158f6818';
 const STAGE_HOT_LEAD = process.env.STAGE_HOT_LEAD || 'aa2b01e1-704a-4d99-aa52-9575fd35d06f';
 const AARON_PHONE = process.env.AARON_PHONE || '+14159090825';
-const TIM_PHONE   = process.env.TIM_PHONE   || '+15102092955';
+const TIM_PHONE   = process.env.TIM_PHONE   || '+15102992955';
 const PRIMARY_NUM = process.env.PRIMARY_NUM || '+15598447093';
 const GREENBUTTON = 'https://utilityapi.com/pge/gb-oauth/tcali_powerequitygroup';
 
