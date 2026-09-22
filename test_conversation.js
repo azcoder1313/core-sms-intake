@@ -34,7 +34,7 @@ async function sendToServer(phone, message) {
 
 async function getLastOutbound(phone) {
   // Poll GHL conversations to see what was sent back
-  const TOKEN = 'pit-3e…5cbd';
+  const TOKEN = process.env.GHL_TOKEN;
   const LOC = 'NcJddt6h22VLqrHhSygt';
 
   // Find contact
